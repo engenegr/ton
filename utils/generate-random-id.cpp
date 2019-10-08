@@ -40,6 +40,27 @@
 #include "keys/encryptor.h"
 #include "keys/keys.hpp"
 
+extern "C" {
+#include "sss.h"
+#include "randombytes.h"
+}
+#include <cppcodec/base32_crockford.hpp>
+#include <cppcodec/base64_rfc4648.hpp>
+#include <cppcodec/hex_upper.hpp>
+#include <termios.h>
+#include <stdio.h>
+#include <assert.h>
+#include <cstdlib>
+
+const int ALL_SHARES = 3;
+const int THR_SHARES = 2;
+
+void clear() {
+    // CSI[2J clears screen, CSI[H moves the cursor to top-left corner
+    std::cout << "\x1B[2J\x1B[H";
+}
+
+
 int main(int argc, char *argv[]) {
   ton::PrivateKey pk;
   ton::tl_object_ptr<ton::ton_api::adnl_addressList> addr_list;
@@ -87,6 +108,129 @@ int main(int argc, char *argv[]) {
     TRY_STATUS_PREFIX(td::from_json(addr_list, as_json_value), "bad addr list TL: ");
     return td::Status::OK();
   });
+  p.add_option('s', "sss", "shamir secret sharing", [&](td::Slice arg) {
+        if (!pk.empty()) {
+            return td::Status::Error("key already initialized using another option");
+        }
+        std::string op_type = arg.str();
+        if (op_type == "gen"){
+            // Shamir secret sharing generation code
+            if (pk.empty()) {
+                pk = ton::privkeys::Ed25519::random();
+            }
+            using hex = cppcodec::hex_upper;
+            uint8_t data[sss_MLEN];
+            sss_Share shares[ALL_SHARES];
+
+            std::string hex_slice = pk.export_as_slice().as_slice().remove_prefix(4).str(); 
+            std::vector<uint8_t> uint_slice(hex_slice.begin(), hex_slice.end());
+
+            for (unsigned i = 0; i < sizeof(data); ++i) {
+                if(i < uint_slice.size()) {
+                    data[i] = uint_slice[i];
+                    continue;
+                };
+                data[i] = 0;
+                // fill zeroes rest of the SSS message
+            }
+            // Split the secret into hares
+            sss_create_shares(shares, data, ALL_SHARES, THR_SHARES);
+            char response;
+            for(int s=0; s<ALL_SHARES; ++s) {
+                std::cout << "Are you ready to save key share #"<< s << " Y/n?" << std::endl;
+                while(true) {
+                    std::cin >> response;
+                    if(response == 'y' || response == 'Y') {
+                        clear();
+                        break;
+                    }
+                }
+                std::string shares_str = std::string(hex::encode(shares[s]));
+                std::cout << "Share #"<< s << " size " << shares_str.size() << " " << shares_str << std::endl;
+                std::cout << "Have you saved share #" << s << " Y/n?" << std::endl;
+                while(true) {
+                    std::cin >> response;
+                    if(response == 'y' || response == 'Y') {
+                        clear();
+                        break;
+                    }
+                }
+            }
+            auto pub_key = pk.compute_public_key();
+            auto short_key = pub_key.compute_short_id();
+            std::cout << short_key.bits256_value().to_hex() << " " << td::base64_encode(short_key.as_slice()) << std::endl;
+            using base64 = cppcodec::base64_rfc4648;
+            
+            std::string hex_pub_key = pub_key.export_as_slice().as_slice().str();
+            std::vector<uint8_t> tmp_key(hex_pub_key.begin(), hex_pub_key.end());
+            std::cout <<"pub key (base64-URL) "<< base64::encode(tmp_key) << std::endl;
+            return td::Status::OK();
+        } else if (op_type == "check") {
+            // Shamir secret sharing check code
+            uint8_t restored[sss_MLEN];
+            sss_Share shares_decoded[THR_SHARES];
+            using hex = cppcodec::hex_upper;
+            int tmp;
+            std::cout << "Testing shares " << " " << THR_SHARES << " of " << ALL_SHARES << std::endl;
+            for (int idx = 0; idx < THR_SHARES; ++idx) {
+                
+                std::string user_input;
+                std::cout << "Share " << idx << " input:"<< std::endl;
+
+                struct termios oflags, nflags;
+                char share_str[256];
+
+                // disabling echo 
+                tcgetattr(fileno(stdin), &oflags);
+                nflags = oflags;
+                nflags.c_lflag &= ~ECHO;
+                nflags.c_lflag |= ECHONL;
+
+                if (tcsetattr(fileno(stdin), TCSANOW, &nflags) != 0) {
+                    perror("tcsetattr");
+                    return td::Status::Error("input error");
+                }
+
+                fgets(share_str, sizeof(share_str), stdin);
+                share_str[strlen(share_str) - 1] = 0;
+
+                // restore terminal 
+                if (tcsetattr(fileno(stdin), TCSANOW, &oflags) != 0) {
+                    perror("tcsetattr");
+                    return td::Status::Error("input error");
+                };
+                std::vector<uint8_t> tmp_share(sss_SHARE_LEN);
+                tmp_share = hex::decode(share_str);
+                for (int i=0; i < sss_SHARE_LEN; ++i)
+                {
+                    shares_decoded[idx][i] = tmp_share[i];
+                };
+            };   
+            // Combine some of the shares to restore the original secret
+            tmp = sss_combine_shares(restored, shares_decoded, 2);
+            if (tmp != 0) {
+                std::cerr << "Shared secret wasn't restored successfully. Closing." << std::endl;
+                return td::Status::Error("key reconstruction error");
+            }
+            // exctract Ed25519 key
+            char restored_ch[32];
+            for (unsigned i = 0; i < sizeof(restored_ch); ++i) {
+                restored_ch[i] = (unsigned char)restored[i];
+            }
+            // using TON stuff for importing key 
+            td::MutableSlice secret(restored_ch, sizeof(restored_ch));
+            td::SecureString key_string{36};
+            auto id = ton::ton_api::pk_ed25519::ID;
+            key_string.as_mutable_slice().copy_from(td::Slice{reinterpret_cast<const td::uint8 *>(&id), 4});
+            key_string.as_mutable_slice().remove_prefix(4).copy_from(secret);
+            TRY_RESULT_PREFIX_ASSIGN(pk, ton::PrivateKey::import(key_string), "failed to import private key: ");   
+            auto pub_key = pk.compute_public_key();
+            auto short_key = pub_key.compute_short_id();
+            std::cout << short_key.bits256_value().to_hex() << " " << td::base64_encode(short_key.as_slice()) << std::endl;
+            return td::Status::OK();
+    }
+    return td::Status::OK();
+  });
 
   auto S = p.run(argc, argv);
 
@@ -102,6 +246,9 @@ int main(int argc, char *argv[]) {
 
   if (pk.empty()) {
     pk = ton::privkeys::Ed25519::random();
+  } else {
+    std::cout << "Key is not empty (SSS). Closing" << std::endl;
+    return 0;      
   }
 
   auto pub_key = pk.compute_public_key();
