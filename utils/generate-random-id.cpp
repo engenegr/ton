@@ -137,22 +137,29 @@ int main(int argc, char *argv[]) {
             sss_create_shares(shares, data, ALL_SHARES, THR_SHARES);
             char response;
             for(int s=0; s<ALL_SHARES; ++s) {
-                std::cout << "Are you ready to save key share #"<< s << " Y/n?" << std::endl;
+                std::string shares_str = std::string(hex::encode(shares[s]));
+                std::cout << "Are you ready to save key share #"<< s << " of size " << shares_str.size() << " Y/n?" << std::endl;
+                std::cout.flush();
                 while(true) {
                     std::cin >> response;
                     if(response == 'y' || response == 'Y') {
                         clear();
                         break;
+                    } else {
+                        return td::Status::OK();
                     }
                 }
-                std::string shares_str = std::string(hex::encode(shares[s]));
-                std::cout << "Share #"<< s << " size " << shares_str.size() << " " << shares_str << std::endl;
+                std::cout << shares_str << std::endl;
+                std::cout.flush();
                 std::cout << "Have you saved share #" << s << " Y/n?" << std::endl;
+                std::cout.flush();
                 while(true) {
                     std::cin >> response;
                     if(response == 'y' || response == 'Y') {
                         clear();
                         break;
+                    } else {
+                        return td::Status::OK();
                     }
                 }
             }
@@ -171,34 +178,38 @@ int main(int argc, char *argv[]) {
             sss_Share shares_decoded[THR_SHARES];
             using hex = cppcodec::hex_upper;
             int tmp;
-            std::cout << "Testing shares " << " " << THR_SHARES << " of " << ALL_SHARES << std::endl;
+            std::cout << "Testing shares(hex)" << " " << THR_SHARES << " of " << ALL_SHARES << std::endl;
+            bool hide = false;
             for (int idx = 0; idx < THR_SHARES; ++idx) {
-                
                 std::string user_input;
-                std::cout << "Share " << idx << " input:"<< std::endl;
-
-                struct termios oflags, nflags;
+                std::cout << "Share " << idx << " input:" << std::endl;
+                std::cout.flush();
                 char share_str[256];
+                if (hide) {
+                    struct termios oflags, nflags;
+                    
+                    // disabling echo 
+                    tcgetattr(fileno(stdin), &oflags);
+                    nflags = oflags;
+                    nflags.c_lflag &= ~ECHO;
+                    nflags.c_lflag |= ECHONL;
 
-                // disabling echo 
-                tcgetattr(fileno(stdin), &oflags);
-                nflags = oflags;
-                nflags.c_lflag &= ~ECHO;
-                nflags.c_lflag |= ECHONL;
+                    if (tcsetattr(fileno(stdin), TCSANOW, &nflags) != 0) {
+                        perror("tcsetattr");
+                        return td::Status::Error("input error");
+                    }
 
-                if (tcsetattr(fileno(stdin), TCSANOW, &nflags) != 0) {
-                    perror("tcsetattr");
-                    return td::Status::Error("input error");
+                    fgets(share_str, sizeof(share_str), stdin);
+                    share_str[strlen(share_str) - 1] = 0;
+
+                    // restore terminal 
+                    if (tcsetattr(fileno(stdin), TCSANOW, &oflags) != 0) {
+                        perror("tcsetattr");
+                        return td::Status::Error("input error");
+                    };
+                } else {
+                    std::cin >> share_str;
                 }
-
-                fgets(share_str, sizeof(share_str), stdin);
-                share_str[strlen(share_str) - 1] = 0;
-
-                // restore terminal 
-                if (tcsetattr(fileno(stdin), TCSANOW, &oflags) != 0) {
-                    perror("tcsetattr");
-                    return td::Status::Error("input error");
-                };
                 std::vector<uint8_t> tmp_share(sss_SHARE_LEN);
                 tmp_share = hex::decode(share_str);
                 for (int i=0; i < sss_SHARE_LEN; ++i)
@@ -227,6 +238,10 @@ int main(int argc, char *argv[]) {
             auto pub_key = pk.compute_public_key();
             auto short_key = pub_key.compute_short_id();
             std::cout << short_key.bits256_value().to_hex() << " " << td::base64_encode(short_key.as_slice()) << std::endl;
+            using base64 = cppcodec::base64_rfc4648;
+            std::string hex_pub_key = pub_key.export_as_slice().as_slice().str();
+            std::vector<uint8_t> tmp_key(hex_pub_key.begin(), hex_pub_key.end());
+            std::cout <<"pub key (base64-URL) "<< base64::encode(tmp_key) << std::endl;
             return td::Status::OK();
     }
     return td::Status::OK();
