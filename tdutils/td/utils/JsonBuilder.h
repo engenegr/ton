@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -193,7 +193,7 @@ class JsonObjectScope;
 
 class JsonBuilder {
  public:
-  explicit JsonBuilder(StringBuilder &&sb, int32 offset = -1) : sb_(std::move(sb)), offset_(offset) {
+  explicit JsonBuilder(StringBuilder &&sb = {}, int32 offset = -1) : sb_(std::move(sb)), offset_(offset) {
   }
   StringBuilder &string_builder() {
     return sb_;

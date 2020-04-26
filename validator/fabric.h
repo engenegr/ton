@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -38,6 +38,7 @@ td::Result<td::Ref<BlockSignatureSet>> create_signature_set(td::BufferSlice sig_
 td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::BufferSlice data);
 td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::Ref<vm::DataCell> root_cell);
 td::Result<BlockHandle> create_block_handle(td::BufferSlice data);
+td::Result<ConstBlockHandle> create_temp_block_handle(td::BufferSlice data);
 BlockHandle create_empty_block_handle(BlockIdExt id);
 td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data);
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data);
@@ -54,8 +55,9 @@ void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::ve
                                  td::Promise<td::Unit> promise);
 void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
                                      td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
-void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, td::actor::ActorId<ValidatorManager> manager,
-                           td::Timestamp timeout, td::Promise<td::Unit> promise);
+void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
+                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+                           td::Promise<td::Unit> promise);
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise, bool skip_check_signatures = false);
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,

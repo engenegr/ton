@@ -14,9 +14,11 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "func.h"
+
+using namespace std::literals::string_literals;
 
 namespace funC {
 
@@ -164,7 +166,8 @@ bool Expr::deduce_type(const Lexem& lem) {
 
 int Expr::define_new_vars(CodeBlob& code) {
   switch (cls) {
-    case _Tuple:
+    case _Tensor:
+    case _MkTuple:
     case _TypeApply: {
       int res = 0;
       for (const auto& x : args) {
@@ -189,7 +192,8 @@ int Expr::define_new_vars(CodeBlob& code) {
 
 int Expr::predefine_vars() {
   switch (cls) {
-    case _Tuple:
+    case _Tensor:
+    case _MkTuple:
     case _TypeApply: {
       int res = 0;
       for (const auto& x : args) {
@@ -201,6 +205,7 @@ int Expr::predefine_vars() {
       if (!sym) {
         assert(val < 0 && here.defined());
         sym = sym::define_symbol(~val, false, here);
+        // std::cerr << "predefining variable " << sym::symbols.get_name(~val) << std::endl;
         if (!sym) {
           throw src::ParseError{here, std::string{"redefined variable `"} + sym::symbols.get_name(~val) + "`"};
         }
@@ -212,12 +217,55 @@ int Expr::predefine_vars() {
   return 0;
 }
 
-std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code) const {
+var_idx_t Expr::new_tmp(CodeBlob& code) const {
+  return code.create_tmp_var(e_type, &here);
+}
+
+std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rhs, const SrcLocation& here) {
+  while (lhs->is_type_apply()) {
+    lhs = lhs->args.at(0);
+  }
+  while (rhs->is_type_apply()) {
+    rhs = rhs->args.at(0);
+  }
+  if (lhs->is_mktuple()) {
+    if (rhs->is_mktuple()) {
+      return pre_compile_let(code, lhs->args.at(0), rhs->args.at(0), here);
+    }
+    auto right = rhs->pre_compile(code);
+    TypeExpr::remove_indirect(rhs->e_type);
+    auto unpacked_type = rhs->e_type->args.at(0);
+    std::vector<var_idx_t> tmp{code.create_tmp_var(unpacked_type, &rhs->here)};
+    code.emplace_back(lhs->here, Op::_UnTuple, tmp, std::move(right));
+    auto tvar = new Expr{_Var};
+    tvar->set_val(tmp[0]);
+    tvar->set_location(rhs->here);
+    tvar->e_type = unpacked_type;
+    pre_compile_let(code, lhs->args.at(0), tvar, here);
+    return tmp;
+  }
+  auto right = rhs->pre_compile(code);
+  if (lhs->cls == Expr::_GlobVar) {
+    assert(lhs->sym);
+    auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, right, lhs->sym);
+    op.flags |= Op::_Impure;
+  } else {
+    auto left = lhs->pre_compile(code, true);
+    code.emplace_back(here, Op::_Let, std::move(left), right);
+  }
+  return right;
+}
+
+std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, bool lval) const {
+  if (lval && !(cls == _Tensor || cls == _Var || cls == _Hole || cls == _TypeApply)) {
+    std::cerr << "lvalue expression constructor is " << cls << std::endl;
+    throw src::Fatal{"cannot compile lvalue expression with unknown constructor"};
+  }
   switch (cls) {
-    case _Tuple: {
+    case _Tensor: {
       std::vector<var_idx_t> res;
       for (const auto& x : args) {
-        auto add = x->pre_compile(code);
+        auto add = x->pre_compile(code, lval);
         res.insert(res.end(), add.cbegin(), add.cend());
       }
       return res;
@@ -241,8 +289,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code) const {
           res.insert(res.end(), add.cbegin(), add.cend());
         }
       }
-      var_idx_t rv = code.create_var(TmpVar::_Tmp, e_type, nullptr, &here);
-      std::vector<var_idx_t> rvect{rv};
+      auto rvect = new_tmp_vect(code);
       auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), sym);
       if (flags & _IsImpure) {
         op.flags |= Op::_Impure;
@@ -250,63 +297,62 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code) const {
       return rvect;
     }
     case _TypeApply:
-      return args[0]->pre_compile(code);
+      return args[0]->pre_compile(code, lval);
     case _Var:
     case _Hole:
       return {val};
     case _VarApply:
       if (args[0]->cls == _Glob) {
-        std::vector<var_idx_t> res = args[1]->pre_compile(code);
-        var_idx_t rv = code.create_var(TmpVar::_Tmp, e_type, nullptr, &here);
-        std::vector<var_idx_t> rvect{rv};
+        auto res = args[1]->pre_compile(code);
+        auto rvect = new_tmp_vect(code);
         auto& op = code.emplace_back(here, Op::_Call, rvect, std::move(res), args[0]->sym);
         if (args[0]->flags & _IsImpure) {
           op.flags |= Op::_Impure;
         }
         return rvect;
       } else {
-        std::vector<var_idx_t> res = args[1]->pre_compile(code);
-        std::vector<var_idx_t> tfunc = args[0]->pre_compile(code);
+        auto res = args[1]->pre_compile(code);
+        auto tfunc = args[0]->pre_compile(code);
         if (tfunc.size() != 1) {
           throw src::Fatal{"stack tuple used as a function"};
         }
         res.push_back(tfunc[0]);
-        var_idx_t rv = code.create_var(TmpVar::_Tmp, e_type, nullptr, &here);
-        std::vector<var_idx_t> rvect{rv};
+        auto rvect = new_tmp_vect(code);
         code.emplace_back(here, Op::_CallInd, rvect, std::move(res));
         return rvect;
       }
     case _Const: {
-      var_idx_t rv = code.create_var(TmpVar::_Tmp, e_type, nullptr, &here);
-      std::vector<var_idx_t> rvect{rv};
+      auto rvect = new_tmp_vect(code);
       code.emplace_back(here, Op::_IntConst, rvect, intval);
       return rvect;
     }
-    case _Glob: {
-      var_idx_t rv = code.create_var(TmpVar::_Tmp, e_type, nullptr, &here);
-      std::vector<var_idx_t> rvect{rv};
+    case _Glob:
+    case _GlobVar: {
+      auto rvect = new_tmp_vect(code);
       code.emplace_back(here, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, sym);
       return rvect;
     }
     case _Letop: {
-      std::vector<var_idx_t> right = args[1]->pre_compile(code);
-      std::vector<var_idx_t> left = args[0]->pre_compile(code);
-      code.emplace_back(here, Op::_Let, left, std::move(right));
-      return left;
+      return pre_compile_let(code, args.at(0), args.at(1), here);
     }
     case _LetFirst: {
-      var_idx_t rv = code.create_var(TmpVar::_Tmp, e_type, nullptr, &here);
-      std::vector<var_idx_t> right = args[1]->pre_compile(code);
-      std::vector<var_idx_t> left = args[0]->pre_compile(code);
-      left.push_back(rv);
+      auto rvect = new_tmp_vect(code);
+      auto right = args[1]->pre_compile(code);
+      auto left = args[0]->pre_compile(code, true);
+      left.push_back(rvect[0]);
       code.emplace_back(here, Op::_Let, std::move(left), std::move(right));
-      return std::vector<var_idx_t>{rv};
+      return rvect;
+    }
+    case _MkTuple: {
+      auto left = new_tmp_vect(code);
+      auto right = args[0]->pre_compile(code);
+      code.emplace_back(here, Op::_Tuple, left, std::move(right));
+      return left;
     }
     case _CondExpr: {
       auto cond = args[0]->pre_compile(code);
       assert(cond.size() == 1);
-      var_idx_t rv = code.create_var(TmpVar::_Tmp, e_type, nullptr, &here);
-      std::vector<var_idx_t> rvect{rv};
+      auto rvect = new_tmp_vect(code);
       Op& if_op = code.emplace_back(here, Op::_If, cond);
       code.push_set_cur(if_op.block0);
       code.emplace_back(here, Op::_Let, rvect, args[1]->pre_compile(code));

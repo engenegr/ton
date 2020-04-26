@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement 
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
@@ -302,6 +302,10 @@ class TestNode : public td::actor::Actor {
       }
       void get_next_key_blocks(ton::BlockIdExt block_id, td::Timestamp timeout,
                                td::Promise<std::vector<ton::BlockIdExt>> promise) override {
+      }
+      void download_archive(ton::BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+
+                            td::Promise<std::string> promise) override {
       }
 
       void new_key_block(ton::validator::BlockHandle handle) override {

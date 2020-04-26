@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "fabric.h"
 #include "collator-impl.h"
@@ -96,6 +96,10 @@ td::Result<BlockHandle> create_block_handle(td::BufferSlice data) {
   return ton::validator::BlockHandleImpl::create(std::move(data));
 }
 
+td::Result<ConstBlockHandle> create_temp_block_handle(td::BufferSlice data) {
+  return ton::validator::BlockHandleImpl::create(std::move(data));
+}
+
 BlockHandle create_empty_block_handle(BlockIdExt id) {
   return ton::validator::BlockHandleImpl::create_empty(id);
 }
@@ -119,7 +123,8 @@ void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<
                             td::Ref<BlockSignatureSet> approve_signatures, bool send_broadcast,
                             td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
   td::actor::create_actor<AcceptBlockQuery>("accept", id, std::move(data), prev, std::move(validator_set),
-                                            std::move(signatures), send_broadcast, manager, std::move(promise))
+                                            std::move(signatures), std::move(approve_signatures), send_broadcast,
+                                            manager, std::move(promise))
       .release();
 }
 
@@ -134,13 +139,16 @@ void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::ve
 
 void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
                                      td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
-  promise.set_error(td::Status::Error(ErrorCode::error, "not implemented"));
+  td::actor::create_actor<AcceptBlockQuery>("fork/accept", AcceptBlockQuery::ForceFork(), id, std::move(data),
+                                            std::move(manager), std::move(promise))
+      .release();
 }
 
-void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, td::actor::ActorId<ValidatorManager> manager,
-                           td::Timestamp timeout, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply " << id, id, std::move(block), manager, timeout,
-                                      std::move(promise))
+void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
+                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+                           td::Promise<td::Unit> promise) {
+  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply " << id, id, std::move(block), masterchain_block_id, manager,
+                                      timeout, std::move(promise))
       .release();
 }
 

@@ -23,7 +23,7 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "blockchain-explorer-http.hpp"
 #include "block/block-db.h"
@@ -35,6 +35,8 @@
 #include "vm/cells/MerkleProof.h"
 #include "block/mc-config.h"
 #include "ton/ton-shard.h"
+
+bool local_scripts{false};
 
 HttpAnswer& HttpAnswer::operator<<(AddressCell addr_c) {
   ton::WorkchainId wc;
@@ -268,8 +270,8 @@ HttpAnswer& HttpAnswer::operator<<(TransactionCell trans_c) {
   }
   *this << "<div class=\"table-responsive my-3\">\n"
         << "<table class=\"table-sm table-striped\">\n"
-        << "<tr><th>block</th><td><a href=\"" << BlockLink{trans_c.block_id} << "\">"
-        << trans_c.block_id.id.to_str() << "</a></td></tr>"
+        << "<tr><th>block</th><td><a href=\"" << BlockLink{trans_c.block_id} << "\">" << trans_c.block_id.id.to_str()
+        << "</a></td></tr>"
         << "<tr><th>workchain</th><td>" << trans_c.addr.workchain << "</td></tr>"
         << "<tr><th>account hex</th><td>" << trans_c.addr.addr.to_hex() << "</td></tr>"
         << "<tr><th>account</th><td>" << trans_c.addr.rserialize(true) << "</td></tr>"
@@ -379,10 +381,27 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
     return *this;
   }
 
+  *this << "<form class=\"container\" action=\"" << prefix_ << "runmethod\" method=\"get\">"
+        << "<div class=\"row\">"
+        << "<p>Run get method<p>"
+        << "<div class=\"form-group col-lg-3 col-md-4\">"
+        << "<input type=\"text\" class=\"form-control mr-2\" name=\"method\" placeholder=\"method\">"
+        << "</div>\n"
+        << "<div class=\"form-group col-lg-4 col-md-6\">"
+        << "<input type=\"text\" class=\"form-control mr-2\" name=\"params\" placeholder=\"parameters\"></div>"
+        << "<input type=\"hidden\" name=\"account\" value=\"" << acc_c.addr.rserialize(true) << "\">"
+        << "<input type=\"hidden\" name=\"workchain\" value=\"" << block_id.id.workchain << "\">"
+        << "<input type=\"hidden\" name=\"shard\" value=\"" << ton::shard_to_str(block_id.id.shard) << "\">"
+        << "<input type=\"hidden\" name=\"seqno\" value=\"" << block_id.id.seqno << "\">"
+        << "<input type=\"hidden\" name=\"roothash\" value=\"" << block_id.root_hash.to_hex() << "\">"
+        << "<input type=\"hidden\" name=\"filehash\" value=\"" << block_id.file_hash.to_hex() << "\">"
+        << "<div><button type=\"submit\" class=\"btn btn-primary mr-2\">Run!</button></div>"
+        << "</div></form>\n";
+
   *this << "<div class=\"table-responsive my-3\">\n"
         << "<table class=\"table-sm table-striped\">\n";
-  *this << "<tr><th>block</th><td><a href=\"" << BlockLink{acc_c.block_id} << "\">"
-        << block_id.id.to_str() << "</a></td></tr>";
+  *this << "<tr><th>block</th><td><a href=\"" << BlockLink{acc_c.block_id} << "\">" << block_id.id.to_str()
+        << "</a></td></tr>";
   *this << "<tr><th>workchain</th><td>" << acc_c.addr.workchain << "</td></tr>";
   *this << "<tr><th>account hex</th><td>" << acc_c.addr.addr.to_hex() << "</td></tr>";
   *this << "<tr><th>account</th><td>" << acc_c.addr.rserialize(true) << "</td></tr>";
@@ -408,7 +427,7 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
 
 HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
   *this << "<div>";
-  vm::CellSlice cs{vm::NoVm{}, head_c.root};
+  vm::CellSlice cs{vm::NoVm(), head_c.root};
   auto block_id = head_c.block_id;
   try {
     auto virt_root = vm::MerkleProof::virtualize(head_c.root, 1);
@@ -438,21 +457,24 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
           << "<tr><th>roothash</th><td>" << block_id.root_hash.to_hex() << "</td></tr>\n"
           << "<tr><th>filehash</th><td>" << block_id.file_hash.to_hex() << "</td></tr>\n"
           << "<tr><th>time</th><td>" << info.gen_utime << "</td></tr>\n"
-          << "<tr><th>lt</th><td>" << info.start_lt << " .. " << info.end_lt
-          << "</td></tr>\n"
+          << "<tr><th>lt</th><td>" << info.start_lt << " .. " << info.end_lt << "</td></tr>\n"
           << "<tr><th>global_id</th><td>" << blk.global_id << "</td></tr>\n"
           << "<tr><th>version</th><td>" << info.version << "</td></tr>\n"
+          << "<tr><th>flags</th><td>" << info.flags << "</td></tr>\n"
+          << "<tr><th>key_block</th><td>" << info.key_block << "</td></tr>\n"
           << "<tr><th>not_master</th><td>" << info.not_master << "</td></tr>\n"
           << "<tr><th>after_merge</th><td>" << info.after_merge << "</td></tr>\n"
           << "<tr><th>after_split</th><td>" << info.after_split << "</td></tr>\n"
           << "<tr><th>before_split</th><td>" << info.before_split << "</td></tr>\n"
           << "<tr><th>want_merge</th><td>" << info.want_merge << "</td></tr>\n"
           << "<tr><th>want_split</th><td>" << info.want_split << "</td></tr>\n"
-          << "<tr><th>validator_list_hash_short</th><td>"
-          << info.gen_validator_list_hash_short << "</td></tr>\n"
+          << "<tr><th>validator_list_hash_short</th><td>" << info.gen_validator_list_hash_short << "</td></tr>\n"
           << "<tr><th>catchain_seqno</th><td>" << info.gen_catchain_seqno << "</td></tr>\n"
-          << "<tr><th>min_ref_mc_seqno</th><td>" << info.min_ref_mc_seqno
-          << "</td></tr>\n";
+          << "<tr><th>min_ref_mc_seqno</th><td>" << info.min_ref_mc_seqno << "</td></tr>\n"
+          << "<tr><th>vert_seqno</th><td>" << info.vert_seq_no << "</td></tr>\n"
+          << "<tr><th>vert_seqno_incr</th><td>" << info.vert_seqno_incr << "</td></tr>\n"
+          << "<tr><th>prev_key_block_seqno</th><td>"
+          << ton::BlockId{ton::masterchainId, ton::shardIdAll, info.prev_key_block_seqno} << "</td></tr>\n";
     for (auto id : prev) {
       *this << "<tr><th>prev block</th><td>" << id << "</td></tr>\n";
     }
@@ -477,10 +499,13 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
     return *this;
   }
 
-  return *this << "<p><a class=\"btn btn-primary mr-2\" href=\"" << BlockDownloadLink{block_id} << "\" download=\""
-               << block_id.file_hash << ".boc\">download block</a>"
-               << "<a class=\"btn btn-primary\" href=\"" << BlockViewLink{block_id} << "\">view block</a>\n"
-               << "</p></div>";
+  *this << "<p><a class=\"btn btn-primary mr-2\" href=\"" << BlockDownloadLink{block_id} << "\" download=\""
+        << block_id.file_hash << ".boc\">download block</a>"
+        << "<a class=\"btn btn-primary\" href=\"" << BlockViewLink{block_id} << "\">view block</a>\n";
+  if (block_id.is_masterchain()) {
+    *this << "<a class=\"btn btn-primary\" href=\"" << ConfigViewLink{block_id} << "\">view config</a>\n";
+  }
+  return *this << "</p></div>";
 }
 
 HttpAnswer& HttpAnswer::operator<<(BlockShardsCell shards_c) {
@@ -568,6 +593,12 @@ HttpAnswer& HttpAnswer::operator<<(BlockViewLink block) {
   return *this;
 }
 
+HttpAnswer& HttpAnswer::operator<<(ConfigViewLink block) {
+  *this << prefix_ << "config?";
+  block_id_link(block.block_id);
+  return *this;
+}
+
 HttpAnswer& HttpAnswer::operator<<(BlockDownloadLink block) {
   *this << prefix_ << "download?";
   block_id_link(block.block_id);
@@ -603,8 +634,24 @@ HttpAnswer& HttpAnswer::operator<<(TransactionList trans) {
   return *this << "</tbody></table></div>";
 }
 
+HttpAnswer& HttpAnswer::operator<<(ConfigParam conf) {
+  std::ostringstream os;
+  *this << "<div id=\"configparam" << conf.idx << "\"><h3>param " << conf.idx << "</h3>";
+  if (conf.idx >= 0) {
+    *this << RawData<block::gen::ConfigParam>{conf.root, conf.idx};
+  } else {
+    *this << RawData<void>{conf.root};
+  }
+  *this << "</div>\n";
+  return *this;
+}
+
 HttpAnswer& HttpAnswer::operator<<(Error error) {
   return *this << "<div class=\"alert alert-danger\">" << error.error.to_string() << "</div>";
+}
+
+HttpAnswer& HttpAnswer::operator<<(Notification n) {
+  return *this << "<div class=\"alert alert-success\">" << n.text << "</div>";
 }
 
 void HttpAnswer::block_id_link(ton::BlockIdExt block_id) {
@@ -627,16 +674,21 @@ std::string HttpAnswer::header() {
   sb_->clear();
   *this << "<!DOCTYPE html>\n"
         << "<html lang=\"en\"><head><meta charset=\"utf-8\"><title>" << title_ << "</title>\n"
-        << "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no\" />\n"
+        << "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, minimum-scale=1.0, "
+           "maximum-scale=1.0, user-scalable=no\" />\n"
         << "<meta name=\"format-detection\" content=\"telephone=no\" />\n"
         << "<!-- Latest compiled and minified CSS -->\n"
-        << "<link rel=\"stylesheet\" href=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css\">\n"
+        << "<link rel=\"stylesheet\" href=\"" << (local_scripts ? "/" : "https://")
+        << "maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css\">\n"
         << "<!-- jQuery library -->"
-        << "<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js\"></script>\n"
+        << "<script src=\"" << (local_scripts ? "/" : "https://")
+        << "ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js\"></script>\n"
         << "<!-- Popper JS -->\n"
-        << "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js\"></script>\n"
+        << "<script src=\"" << (local_scripts ? "/" : "https://")
+        << "cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js\"></script>\n"
         << "<!-- Latest compiled JavaScript -->\n"
-        << "<script src=\"https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js\"></script>\n"
+        << "<script src=\"" << (local_scripts ? "/" : "https://")
+        << "maxcdn.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js\"></script>\n"
         << "</head><body>\n"
         << "<div class=\"container-fluid\">\n"
         << "<nav class=\"navbar navbar-expand px-0 mt-1 flex-wrap\">\n"
@@ -648,7 +700,8 @@ std::string HttpAnswer::header() {
         << "<div class=\"input-group ml-auto\" style=\"max-width:540px;\">"
         << "<input class=\"form-control mr-2 rounded\" type=\"search\" placeholder=\"account\" aria-label=\"account\" "
         << "name=\"account\">";
-  *this << "<div class=\"input-group-append\"><button class=\"btn btn-outline-primary rounded\" type=\"submit\">view</button></div>"
+  *this << "<div class=\"input-group-append\"><button class=\"btn btn-outline-primary rounded\" "
+           "type=\"submit\">view</button></div>"
         << "</div></form>"
         << "</nav>\n";
 

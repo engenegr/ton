@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -48,12 +48,24 @@
     }                                                 \
   }
 
+#define TRY_STATUS_PROMISE(promise_name, status)     \
+  {                                                  \
+    auto try_status = (status);                      \
+    if (try_status.is_error()) {                     \
+      promise_name.set_error(std::move(try_status)); \
+      return;                                        \
+    }                                                \
+  }
+
 #define TRY_RESULT(name, result) TRY_RESULT_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result)
 
 #define TRY_RESULT_PROMISE(promise_name, name, result) \
   TRY_RESULT_PROMISE_IMPL(promise_name, TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result)
 
 #define TRY_RESULT_ASSIGN(name, result) TRY_RESULT_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), name, result)
+
+#define TRY_RESULT_PROMISE_ASSIGN(promise_name, name, result) \
+  TRY_RESULT_PROMISE_IMPL(promise_name, TD_CONCAT(TD_CONCAT(r_, name), __LINE__), name, result)
 
 #define TRY_RESULT_PREFIX(name, result, prefix) \
   TRY_RESULT_PREFIX_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result, prefix)
@@ -307,6 +319,11 @@ class Status {
 
   Status move_as_error() TD_WARN_UNUSED_RESULT {
     return std::move(*this);
+  }
+
+  Auto move_as_ok() {
+    UNREACHABLE();
+    return {};
   }
 
   Status move_as_error_prefix(const Status &status) const TD_WARN_UNUSED_RESULT {

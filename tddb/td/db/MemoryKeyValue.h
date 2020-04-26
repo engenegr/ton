@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 #include "td/db/KeyValue.h"
@@ -38,11 +38,7 @@ class MemoryKeyValue : public KeyValue {
   std::string stats() const override;
 
  private:
-  class Cmp : public std::less<> {
-   public:
-    using is_transparent = void;
-  };
-  std::map<std::string, std::string, Cmp> map_;
+  std::map<std::string, std::string, std::less<>> map_;
   int64 get_count_{0};
 };
 }  // namespace td

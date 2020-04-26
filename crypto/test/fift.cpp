@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #include "fift/words.h"
 #include "fift/Fift.h"
@@ -89,4 +89,24 @@ TEST(Fift, test) {
 }
 TEST(Fift, bug_div) {
   run_fift("bug_div.fif");
+}
+
+TEST(Fift, bug_ufits) {
+  run_fift("bug_ufits.fif");
+}
+
+TEST(Fift, test_dict) {
+  run_fift("testdict.fif");
+}
+
+TEST(Fift, test_fixed) {
+  run_fift("fixed.fif");
+}
+
+TEST(Fift, test_sort) {
+  run_fift("sort.fif");
+}
+
+TEST(Fift, test_sort2) {
+  run_fift("sort2.fif");
 }

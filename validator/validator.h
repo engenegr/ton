@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -68,6 +68,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::uint32 key_block_utime_step() const {
     return 86400;
   }
+  virtual bool check_unsafe_resync_allowed(CatchainSeqno seqno) const = 0;
+  virtual td::uint32 check_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno) const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -81,6 +83,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_initial_sync_disabled(bool value) = 0;
   virtual void set_hardforks(std::vector<BlockIdExt> hardforks) = 0;
   virtual void set_filedb_depth(td::uint32 value) = 0;
+  virtual void add_unsafe_resync_catchain(CatchainSeqno seqno) = 0;
+  virtual void add_unsafe_catchain_rotate(BlockSeqno seqno, CatchainSeqno cc_seqno, td::uint32 value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
@@ -117,6 +121,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                            td::Promise<td::BufferSlice> promise) = 0;
     virtual void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
                                      td::Promise<std::vector<BlockIdExt>> promise) = 0;
+    virtual void download_archive(BlockSeqno masterchain_seqno, std::string tmp_dir, td::Timestamp timeout,
+                                  td::Promise<std::string> promise) = 0;
 
     virtual void new_key_block(BlockHandle handle) = 0;
   };
@@ -157,6 +163,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_proof_link(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_handle(BlockIdExt block_id, bool force, td::Promise<BlockHandle> promise) = 0;
+  virtual void get_key_block_proof(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_next_key_blocks(BlockIdExt block_id, td::uint32 cnt,
                                    td::Promise<std::vector<BlockIdExt>> promise) = 0;
   virtual void get_next_block(BlockIdExt block_id, td::Promise<BlockHandle> promise) = 0;
@@ -172,23 +180,27 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
                                   td::Promise<std::unique_ptr<DownloadToken>> promise) = 0;
 
-  virtual void get_block_data_from_db(BlockHandle handle, td::Promise<td::Ref<BlockData>> promise) = 0;
+  virtual void get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_data_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                            td::Promise<BlockCandidate> promise) = 0;
-  virtual void get_shard_state_from_db(BlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void get_shard_state_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_shard_state_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) = 0;
-  virtual void get_block_proof_from_db(BlockHandle handle, td::Promise<td::Ref<Proof>> promise) = 0;
+  virtual void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) = 0;
   virtual void get_block_proof_from_db_short(BlockIdExt id, td::Promise<td::Ref<Proof>> promise) = 0;
-  virtual void get_block_proof_link_from_db(BlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) = 0;
+  virtual void get_block_proof_link_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) = 0;
   virtual void get_block_proof_link_from_db_short(BlockIdExt id, td::Promise<td::Ref<ProofLink>> promise) = 0;
 
   virtual void get_block_by_lt_from_db(AccountIdPrefixFull account, LogicalTime lt,
-                                       td::Promise<BlockIdExt> promise) = 0;
+                                       td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_by_unix_time_from_db(AccountIdPrefixFull account, UnixTime ts,
-                                              td::Promise<BlockIdExt> promise) = 0;
+                                              td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_by_seqno_from_db(AccountIdPrefixFull account, BlockSeqno seqno,
-                                          td::Promise<BlockIdExt> promise) = 0;
+                                          td::Promise<ConstBlockHandle> promise) = 0;
+
+  virtual void get_archive_id(BlockSeqno masterchain_seqno, td::Promise<td::uint64> promise) = 0;
+  virtual void get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uint32 limit,
+                                 td::Promise<td::BufferSlice> promise) = 0;
 
   virtual void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise) = 0;

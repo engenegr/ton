@@ -9,7 +9,7 @@ get_filename_component(TON_REAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" REALPAT
 get_filename_component(TON_REAL_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}" REALPATH)
 
 if (TON_REAL_BINARY_DIR STREQUAL TON_REAL_SOURCE_DIR)
-  message("  Out-of-source build should be used to build TDLib.")
+  message("  Out-of-source build should be used to build TON.")
   message("  You need to remove the files already created by CMake and")
   message("  rerun CMake from a new directory:")
   message("  rm -rf CMakeFiles CMakeCache.txt")
@@ -190,6 +190,7 @@ endif()
 set(CMAKE_THREAD_PREFER_PTHREAD ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
 
 if (TON_ARCH AND NOT MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${TON_ARCH}")
@@ -253,6 +254,18 @@ endif()
 if (NOT ANDROID) # _FILE_OFFSET_BITS is broken in ndk r15 and r15b and doesn't work prior to Android 7.0
   add_definitions(-D_FILE_OFFSET_BITS=64)
 endif()
+
+set(INTERNAL_COMPILE "0")
+#BEGIN internal
+  add_definitions(-D_INTERNAL_COMPILE=1)
+  set(INTERNAL_COMPILE "1")
+#END internal
+
+set(TONLIB_COMPILE "0")
+#BEGIN tonlib
+  add_definitions(-D_TONLIB_COMPILE=1)
+  set(TONLIB_COMPILE "1")
+#END tonlib
 
 include(AddCXXCompilerFlag)
 if (MSVC)
@@ -322,6 +335,7 @@ if (LATEX_FOUND)
   add_latex_document(doc/tvm.tex TARGET_NAME ton_vm_description)
   add_latex_document(doc/tblkch.tex TARGET_NAME ton_blockchain_description)
   add_latex_document(doc/fiftbase.tex TARGET_NAME fift_basic_description)
+  add_latex_document(doc/catchain.tex TARGET_NAME catchain_consensus_description)
 endif()
 #END internal
 
@@ -373,6 +387,8 @@ add_subdirectory(validator-engine)
 add_subdirectory(validator-engine-console)
 add_subdirectory(dht-server)
 add_subdirectory(utils)
+add_subdirectory(http)
+add_subdirectory(rldp-http-proxy)
 endif()
 #END internal
 
@@ -380,7 +396,7 @@ if (NOT CMAKE_CROSSCOMPILING)
   if (TDUTILS_MIME_TYPE)
     set(TDMIME_AUTO tdmime_auto)
   endif()
-  add_custom_target(prepare_cross_compiling DEPENDS tl_generate_common tlb_generate_block ${TDMIME_AUTO})
+  add_custom_target(prepare_cross_compiling DEPENDS tl_generate_common tlb_generate_block gen_fif ${TDMIME_AUTO})
 endif()
 
 #TESTS
@@ -389,6 +405,9 @@ target_link_libraries(test-ed25519 PRIVATE ton_crypto)
 
 add_executable(test-vm test/test-td-main.cpp ${TONVM_TEST_SOURCE})
 target_link_libraries(test-vm PRIVATE ton_crypto fift-lib)
+
+add_executable(test-smartcont test/test-td-main.cpp ${SMARTCONT_TEST_SOURCE})
+target_link_libraries(test-smartcont PRIVATE smc-envelope fift-lib ton_db)
 
 add_executable(test-cells test/test-td-main.cpp ${CELLS_TEST_SOURCE})
 target_link_libraries(test-cells PRIVATE ton_crypto)
@@ -437,7 +456,7 @@ if (USE_LIBRAPTORQ)
 endif()
 
 add_executable(test-hello-world test/test-hello-world.cpp )
-target_link_libraries(test-hello-world tl_api)
+target_link_libraries(test-hello-world tl_api ton_crypto)
 
 add_executable(test-adnl test/test-adnl.cpp)
 target_link_libraries(test-adnl adnl adnltest dht tl_api)
@@ -469,6 +488,9 @@ target_link_libraries(test-ton-collator overlay tdutils tdactor adnl tl_api dht
 #add_executable(test-ext-client test/test-ext-client.cpp)
 #target_link_libraries(test-ext-client tdutils tdactor adnl tl_api tl-lite-utils)
 
+add_executable(test-http test/test-http.cpp)
+target_link_libraries(test-http PRIVATE tonhttp)
+
 get_directory_property(HAS_PARENT PARENT_DIRECTORY)
 if (HAS_PARENT)
   set(ALL_TEST_SOURCE
@@ -490,10 +512,12 @@ endif()
 enable_testing()
 set(TEST_OPTIONS "--regression ${CMAKE_CURRENT_SOURCE_DIR}/test/regression-tests.ans --filter -Bench")
 separate_arguments(TEST_OPTIONS)
+add_test(test-ed25519-crypto crypto/test-ed25519-crypto)
 add_test(test-ed25519 test-ed25519)
 add_test(test-vm test-vm ${TEST_OPTIONS})
 add_test(test-fift test-fift ${TEST_OPTIONS})
 add_test(test-cells test-cells ${TEST_OPTIONS})
+add_test(test-smartcont test-smartcont)
 add_test(test-net test-net)
 add_test(test-actors test-tdactor)
 
@@ -504,6 +528,12 @@ add_test(test-tonlib-offline test-tonlib-offline)
 
 #BEGIN internal
 if (NOT TON_ONLY_TONLIB)
+add_test(test-adnl test-adnl)
+add_test(test-dht test-dht)
+add_test(test-rldp test-rldp)
+#add_test(test-validator-session-state test-validator-session-state)
+add_test(test-catchain test-catchain)
+
 add_test(test-fec test-fec)
 add_test(test-tddb test-tddb ${TEST_OPTIONS})
 add_test(test-db test-db ${TEST_OPTIONS})

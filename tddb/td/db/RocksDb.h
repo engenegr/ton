@@ -14,7 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    Copyright 2017-2019 Telegram Systems LLP
+    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
@@ -59,6 +59,10 @@ class RocksDb : public KeyValue {
   RocksDb(RocksDb &&);
   RocksDb &operator=(RocksDb &&);
   ~RocksDb();
+
+  std::shared_ptr<rocksdb::OptimisticTransactionDB> raw_db() const {
+    return db_;
+  };
 
  private:
   std::shared_ptr<rocksdb::OptimisticTransactionDB> db_;
